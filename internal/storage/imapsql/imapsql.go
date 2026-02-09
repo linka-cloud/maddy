@@ -42,6 +42,7 @@ import (
 	"github.com/emersion/go-imap/backend"
 	mess "github.com/foxcpp/go-imap-mess"
 	imapsql "github.com/foxcpp/go-imap-sql"
+
 	"github.com/foxcpp/maddy/framework/config"
 	modconfig "github.com/foxcpp/maddy/framework/config/module"
 	"github.com/foxcpp/maddy/framework/dns"
@@ -80,6 +81,7 @@ type Storage struct {
 	deliveryNormalize func(context.Context, string) (string, error)
 	authMap           module.Table
 	authNormalize     func(context.Context, string) (string, error)
+	autoCreateMap     module.Table
 }
 
 func (store *Storage) Name() string {
@@ -161,6 +163,9 @@ func (store *Storage) Configure(inlineArgs []string, cfg *config.Map) error {
 		return nil, nil
 	}, modconfig.TableDirective, &store.deliveryMap)
 	cfg.String("delivery_normalize", false, false, "precis_casefold_email", &deliveryNormalize)
+	cfg.Custom("autocreate_for", false, false, func() (interface{}, error) {
+		return nil, nil
+	}, modconfig.TableDirective, &store.autoCreateMap)
 
 	if _, err := cfg.Process(); err != nil {
 		return err

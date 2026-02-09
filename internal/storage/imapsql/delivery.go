@@ -27,6 +27,7 @@ import (
 	"github.com/emersion/go-message/textproto"
 	"github.com/emersion/go-smtp"
 	imapsql "github.com/foxcpp/go-imap-sql"
+
 	"github.com/foxcpp/maddy/framework/buffer"
 	"github.com/foxcpp/maddy/framework/exterrors"
 	"github.com/foxcpp/maddy/framework/module"
@@ -76,6 +77,10 @@ func (d *delivery) AddRcpt(ctx context.Context, rcptTo string, _ smtp.RcptOption
 	// with small amount of per-recipient data in a efficient way.
 	userHeader := textproto.Header{}
 	userHeader.Add("Delivered-To", accountName)
+
+	if err := d.autoCreateAccount(ctx, accountName); err != nil {
+		return err
+	}
 
 	if err := d.d.AddRcpt(accountName, userHeader); err != nil {
 		if err == imapsql.ErrUserDoesntExists || err == backend.ErrNoSuchMailbox {
@@ -165,4 +170,28 @@ func (store *Storage) StartDelivery(ctx context.Context, msgMeta *module.MsgMeta
 		d:          store.Back.NewDelivery(),
 		addedRcpts: map[string]addedRcpt{},
 	}, nil
+}
+
+func (d *delivery) autoCreateAccount(ctx context.Context, accountName string) error {
+	if d.store.autoCreateMap == nil {
+		return nil
+	}
+	_, ok, err := d.store.Lookup(ctx, accountName)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	_, ok, err = d.store.autoCreateMap.Lookup(ctx, accountName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if _, err := d.store.GetOrCreateIMAPAcct(accountName); err != nil {
+		return err
+	}
+	return nil
 }
