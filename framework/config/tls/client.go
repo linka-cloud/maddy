@@ -50,6 +50,7 @@ func TLSClientBlock(_ *config.Map, node config.Node) (interface{}, error) {
 	childM.Custom("curves", false, false, func() (interface{}, error) {
 		return nil, nil
 	}, TLSCurvesDirective, &cfg.CurvePreferences)
+	childM.Bool("insecure_skip_verify", false, false, &cfg.InsecureSkipVerify)
 
 	if _, err := childM.Process(); err != nil {
 		return nil, err
