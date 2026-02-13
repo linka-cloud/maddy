@@ -10,11 +10,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/foxcpp/maddy/framework/config"
 	tls2 "github.com/foxcpp/maddy/framework/config/tls"
 	"github.com/foxcpp/maddy/framework/log"
 	"github.com/foxcpp/maddy/framework/module"
-	"github.com/go-ldap/ldap/v3"
 )
 
 const modName = "auth.ldap"
@@ -33,6 +35,9 @@ type Auth struct {
 	// or
 	baseDN         string
 	filterTemplate string
+
+	resultAttr        string
+	specialResultAttr string
 
 	conn     *ldap.Conn
 	connLock sync.Mutex
@@ -71,21 +76,26 @@ func (a *Auth) Configure(inlineArgs []string, cfg *config.Map) error {
 	cfg.String("dn_template", false, false, "", &a.dnTemplate)
 	cfg.String("base_dn", false, false, "", &a.baseDN)
 	cfg.String("filter", false, false, "", &a.filterTemplate)
+	cfg.String("result_attribute", false, false, "dn", &a.resultAttr)
+	cfg.String("special_result_attribute", false, false, "", &a.specialResultAttr)
 	if _, err := cfg.Process(); err != nil {
 		return err
 	}
 
 	if a.dnTemplate == "" {
 		if a.baseDN == "" {
-			return fmt.Errorf("auth.ldap: base_dn not set")
+			return fmt.Errorf("%s: base_dn not set", a.instName)
 		}
 		if a.filterTemplate == "" {
-			return fmt.Errorf("auth.ldap: filter not set")
+			return fmt.Errorf("%s: filter not set", a.instName)
 		}
 	} else {
 		if a.baseDN != "" || a.filterTemplate != "" {
-			return fmt.Errorf("auth.ldap: search directives set when dn_template is used")
+			return fmt.Errorf("%s: search directives set when dn_template is used", a.instName)
 		}
+	}
+	if a.specialResultAttr != "" && a.resultAttr == "" {
+		return fmt.Errorf("%s: leaf_result_attribute must be set when special_result_attribute is used", a.instName)
 	}
 
 	return nil
@@ -136,7 +146,7 @@ func (a *Auth) newConn() (*ldap.Conn, error) {
 	for _, u := range a.urls {
 		parsedURL, err := url.Parse(u)
 		if err != nil {
-			return nil, fmt.Errorf("auth.ldap: invalid server URL: %w", err)
+			return nil, fmt.Errorf("%s: invalid server URL: %w", a.instName, err)
 		}
 		hostname := parsedURL.Host
 		a.tlsCfg.ServerName = strings.Split(hostname, ":")[0]
@@ -159,12 +169,12 @@ func (a *Auth) newConn() (*ldap.Conn, error) {
 
 	if a.startls {
 		if err := conn.StartTLS(tlsCfg); err != nil {
-			return nil, fmt.Errorf("auth.ldap: %w", err)
+			return nil, fmt.Errorf("%s: %w", a.instName, err)
 		}
 	}
 
 	if err := a.readBind(conn); err != nil {
-		return nil, fmt.Errorf("auth.ldap: %w", err)
+		return nil, fmt.Errorf("%s: %w", a.instName, err)
 	}
 
 	return conn, nil
@@ -212,35 +222,81 @@ func (a *Auth) returnConn(conn *ldap.Conn) {
 }
 
 func (a *Auth) Lookup(_ context.Context, username string) (string, bool, error) {
-	conn, err := a.getConn()
+	res, err := a.LookupMulti(context.Background(), username)
 	if err != nil {
 		return "", false, err
 	}
-	defer a.returnConn(conn)
+	if len(res) == 0 {
+		return "", false, nil
+	}
+	return res[0], true, nil
+}
 
-	var userDN string
+func (a *Auth) LookupMulti(_ context.Context, username string) ([]string, error) {
+	conn, err := a.getConn()
+	if err != nil {
+		return nil, err
+	}
+	defer a.returnConn(conn)
+	attr := a.resultAttr
+	if a.specialResultAttr != "" {
+		attr = a.specialResultAttr
+	}
+
+	var results []string
 	if a.dnTemplate != "" {
-		return "", false, fmt.Errorf("auth.ldap: lookups require search config but dn_template is used")
+		return nil, fmt.Errorf("%s: lookups require search config but dn_template is used", a.instName)
 	} else {
 		req := ldap.NewSearchRequest(
 			a.baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
-			2, 0, false,
+			0, 0, false,
 			strings.ReplaceAll(a.filterTemplate, "{username}", username),
-			[]string{"dn"}, nil)
+			[]string{attr}, nil)
 		res, err := conn.Search(req)
 		if err != nil {
-			return "", false, fmt.Errorf("auth.ldap: search: %w", err)
+			return nil, fmt.Errorf("%s: search: %w", a.instName, err)
 		}
-		if len(res.Entries) > 1 {
-			return "", false, fmt.Errorf("auth.ldap: too manu entries returned (%d)", len(res.Entries))
+		for _, entry := range res.Entries {
+			if attr != "dn" {
+				results = append(results, entry.GetAttributeValues(attr)...)
+			} else {
+				results = append(results, entry.DN)
+			}
 		}
-		if len(res.Entries) == 0 {
-			return "", false, nil
-		}
-		userDN = res.Entries[0].DN
 	}
-
-	return userDN, true, nil
+	if a.specialResultAttr == "" {
+		return results, nil
+	}
+	g := errgroup.Group{}
+	for i, r := range results {
+		g.Go(func() error {
+			req := ldap.NewSearchRequest(
+				r, ldap.ScopeBaseObject, ldap.NeverDerefAliases,
+				1, 0, false,
+				"(objectClass=*)",
+				[]string{a.resultAttr}, nil)
+			res, err := conn.Search(req)
+			if err != nil {
+				return fmt.Errorf("%s: search for special attribute: %w", a.instName, err)
+			}
+			if len(res.Entries) != 0 {
+				results[i] = res.Entries[0].GetAttributeValue(a.resultAttr)
+			} else {
+				results[i] = ""
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	out := make([]string, len(results))
+	for i, r := range out {
+		if r == "" {
+			out[i] = results[i]
+		}
+	}
+	return out, nil
 }
 
 func (a *Auth) AuthPlain(username, password string) error {
@@ -283,7 +339,7 @@ func (a *Auth) Start() error {
 	var err error
 	a.conn, err = a.newConn()
 	if err != nil {
-		return fmt.Errorf("auth.ldap: %w", err)
+		return fmt.Errorf("%s: %w", a.instName, err)
 	}
 	return nil
 }
