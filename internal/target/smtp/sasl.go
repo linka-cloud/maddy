@@ -20,6 +20,7 @@ package smtp_downstream
 
 import (
 	"github.com/emersion/go-sasl"
+
 	"github.com/foxcpp/maddy/framework/config"
 	"github.com/foxcpp/maddy/framework/exterrors"
 	"github.com/foxcpp/maddy/framework/module"
@@ -46,7 +47,7 @@ func saslAuthDirective(_ *config.Map, node config.Node) (interface{}, error) {
 			return nil, config.NodeErr(node, "no additional arguments required")
 		}
 		return func(msgMeta *module.MsgMetadata) (sasl.Client, error) {
-			if msgMeta.Conn == nil || msgMeta.Conn.AuthUser == "" || msgMeta.Conn.AuthPassword == "" {
+			if msgMeta.Conn == nil || msgMeta.Conn.AuthMech == "" || msgMeta.Conn.AuthUser == "" || msgMeta.Conn.AuthSecret == "" {
 				return nil, &exterrors.SMTPError{
 					Code:         530,
 					EnhancedCode: exterrors.EnhancedCode{5, 7, 0},
@@ -55,7 +56,20 @@ func saslAuthDirective(_ *config.Map, node config.Node) (interface{}, error) {
 					Reason:       "Credentials forwarding is requested but the client is not authenticated",
 				}
 			}
-			return sasl.NewPlainClient("", msgMeta.Conn.AuthUser, msgMeta.Conn.AuthPassword), nil
+			switch msgMeta.Conn.AuthMech {
+			case sasl.Plain:
+				return sasl.NewPlainClient("", msgMeta.Conn.AuthUser, msgMeta.Conn.AuthSecret), nil
+			case sasl.OAuthBearer:
+				return sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{Username: msgMeta.Conn.AuthUser, Token: msgMeta.Conn.AuthSecret}), nil
+			default:
+				return nil, &exterrors.SMTPError{
+					Code:         504,
+					EnhancedCode: exterrors.EnhancedCode{5, 7, 0},
+					Message:      "Unsupported authentication mechanism",
+					TargetName:   "target.smtp",
+					Reason:       "Credentials forwarding is requested but the client's authentication mechanism is not supported",
+				}
+			}
 		}, nil
 	case "plain":
 		if len(node.Args) != 3 {

@@ -123,8 +123,8 @@ func TestSASL_Forward(t *testing.T) {
 
 	testutils.DoTestDeliveryMeta(t, mod, "test@example.invalid", []string{"rcpt@example.invalid"}, &module.MsgMetadata{
 		Conn: &module.ConnState{
-			AuthUser:     "test",
-			AuthPassword: "testpass",
+			AuthUser:   "test",
+			AuthSecret: "testpass",
 		},
 	})
 	be.CheckMsg(t, 0, "test@example.invalid", []string{"rcpt@example.invalid"})

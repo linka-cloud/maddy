@@ -29,6 +29,8 @@ import (
 	"sync"
 
 	"github.com/caddyserver/certmagic"
+	"github.com/urfave/cli/v2"
+
 	parser "github.com/foxcpp/maddy/framework/cfgparser"
 	"github.com/foxcpp/maddy/framework/config"
 	modconfig "github.com/foxcpp/maddy/framework/config/module"
@@ -40,13 +42,13 @@ import (
 	"github.com/foxcpp/maddy/framework/resource/netresource"
 	"github.com/foxcpp/maddy/internal/authz"
 	maddycli "github.com/foxcpp/maddy/internal/cli"
-	"github.com/urfave/cli/v2"
 
 	// Import packages for side-effect of module registration.
 	_ "github.com/foxcpp/maddy/internal/auth/dovecot_sasl"
 	_ "github.com/foxcpp/maddy/internal/auth/external"
 	_ "github.com/foxcpp/maddy/internal/auth/ldap"
 	_ "github.com/foxcpp/maddy/internal/auth/netauth"
+	_ "github.com/foxcpp/maddy/internal/auth/openid"
 	_ "github.com/foxcpp/maddy/internal/auth/pam"
 	_ "github.com/foxcpp/maddy/internal/auth/pass_table"
 	_ "github.com/foxcpp/maddy/internal/auth/plain_separate"

@@ -25,6 +25,7 @@ import (
 	"net"
 
 	"github.com/emersion/go-sasl"
+
 	"github.com/foxcpp/maddy/framework/config"
 	modconfig "github.com/foxcpp/maddy/framework/config/module"
 	"github.com/foxcpp/maddy/framework/log"
@@ -56,7 +57,8 @@ type SASLAuth struct {
 
 	ErrorMap func(err error) error
 
-	Plain []module.PlainAuth
+	Plain       []module.PlainAuth
+	OAuthBearer []module.OAuthBearerAuth
 }
 
 func (s *SASLAuth) SASLMechanisms() []string {
@@ -67,6 +69,10 @@ func (s *SASLAuth) SASLMechanisms() []string {
 		if s.EnableLogin {
 			mechs = append(mechs, sasl.Login)
 		}
+	}
+
+	if len(s.OAuthBearer) != 0 {
+		mechs = append(mechs, sasl.OAuthBearer)
 	}
 
 	return mechs
@@ -125,12 +131,26 @@ func (s *SASLAuth) AuthPlain(username, password string) error {
 	return fmt.Errorf("no auth. provider accepted creds, last err: %w", lastErr)
 }
 
+func (s *SASLAuth) AuthOAuthBearer(username, token string) error {
+	if len(s.OAuthBearer) == 0 {
+		return ErrUnsupportedMech
+	}
+
+	var lastErr error
+	for _, p := range s.OAuthBearer {
+		if lastErr = p.AuthOAuthBearer(username, token); lastErr == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no auth. provider accepted creds, last err: %w", lastErr)
+}
+
 type ContextData struct {
 	// Authentication username. May be different from identity.
 	Username string
 
-	// Password used for password-based mechanisms.
-	Password string
+	// Secret used for password-based or token-based mechanisms.
+	Secret string
 }
 
 // CreateSASL creates the sasl.Server instance for the corresponding mechanism.
@@ -162,7 +182,7 @@ func (s *SASLAuth) CreateSASL(
 
 			return successCb(identity, ContextData{
 				Username: username,
-				Password: password,
+				Secret:   password,
 			})
 		})
 	case sasl.Login:
@@ -190,8 +210,35 @@ func (s *SASLAuth) CreateSASL(
 
 			return successCb(username, ContextData{
 				Username: username,
-				Password: password,
+				Secret:   password,
 			})
+		})
+	case sasl.OAuthBearer:
+		oauthErr := &sasl.OAuthBearerError{
+			Status:  "invalid_token",
+			Scope:   "email",
+			Schemes: "bearer",
+		}
+		return sasl.NewOAuthBearerServer(func(opts sasl.OAuthBearerOptions) *sasl.OAuthBearerError {
+			username, err := s.usernameForAuth(context.Background(), opts.Username)
+			if err != nil {
+				s.Log.Error("username mapping failed", err, "username", opts.Username)
+				return oauthErr
+			}
+
+			if err = s.AuthOAuthBearer(username, opts.Token); err != nil {
+				s.Log.Error("authentication failed", err, "username", username, "src_ip", remoteAddr)
+				return oauthErr
+			}
+
+			if err := successCb(username, ContextData{
+				Username: username,
+				Secret:   opts.Token,
+			}); err != nil {
+				s.Log.Error("authentication success callback failed", err, "username", username, "src_ip", remoteAddr)
+				return oauthErr
+			}
+			return nil
 		})
 	}
 	return FailingSASLServ{Err: ErrUnsupportedMech}
@@ -208,6 +255,10 @@ func (s *SASLAuth) AddProvider(m *config.Map, node config.Node) error {
 	hasAny := false
 	if plainAuth, ok := any.(module.PlainAuth); ok {
 		s.Plain = append(s.Plain, plainAuth)
+		hasAny = true
+	}
+	if oauthBearerAuth, ok := any.(module.OAuthBearerAuth); ok {
+		s.OAuthBearer = append(s.OAuthBearer, oauthBearerAuth)
 		hasAny = true
 	}
 

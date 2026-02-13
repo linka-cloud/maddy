@@ -46,6 +46,9 @@ type Auth struct {
 }
 
 func New(modName, instName string) (module.Module, error) {
+	if instName == "" {
+		instName = modName
+	}
 	return &Auth{
 		instName: instName,
 		log:      log.Logger{Name: modName},

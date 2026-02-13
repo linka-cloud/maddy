@@ -618,8 +618,8 @@ func TestSMTPDelivery_SubmissionAuthOK(t *testing.T) {
 	if msg.MsgMeta.Conn.AuthUser != "user" {
 		t.Error("Wrong AuthUser:", msg.MsgMeta.Conn.AuthUser)
 	}
-	if msg.MsgMeta.Conn.AuthPassword != "password" {
-		t.Error("Wrong AuthPassword:", msg.MsgMeta.Conn.AuthPassword)
+	if msg.MsgMeta.Conn.AuthSecret != "password" {
+		t.Error("Wrong AuthSecret:", msg.MsgMeta.Conn.AuthSecret)
 	}
 
 	receivedPrefix := `by mx.example.com (envelope-sender <sender@example.org>) with ESMTP id ` + msgID

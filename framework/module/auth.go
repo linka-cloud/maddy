@@ -42,3 +42,7 @@ type PlainUserDB interface {
 	SetUserPassword(username, password string) error
 	DeleteUser(username string) error
 }
+
+type OAuthBearerAuth interface {
+	AuthOAuthBearer(username, token string) error
+}

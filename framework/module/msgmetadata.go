@@ -26,6 +26,7 @@ import (
 	"net"
 
 	"github.com/emersion/go-smtp"
+
 	"github.com/foxcpp/maddy/framework/future"
 )
 
@@ -59,13 +60,17 @@ type ConnState struct {
 	//   Consumers should assume that the PTR record doesn't exist.
 	RDNSName *future.Future
 
+	// If the client successfully authenticated using any authentication mechanism
+	// supported by the server, this field contains the name of the mechanism used.
+	AuthMech string
+
 	// If the client successfully authenticated using a username/password pair.
 	// This field contains the username.
 	AuthUser string
 
-	// If the client successfully authenticated using a username/password pair.
+	// If the client successfully authenticated using a username/password or username/token pair.
 	// This field should be cleaned if the ConnState object is serialized
-	AuthPassword string
+	AuthSecret string
 
 	ModData ModSpecificData
 }

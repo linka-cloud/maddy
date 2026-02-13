@@ -47,3 +47,4 @@ tests/maddy.cover
 tests/maddy
 
 .idea/
+/tmp
