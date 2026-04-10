@@ -30,6 +30,7 @@ import (
 	"github.com/emersion/go-imap"
 	compress "github.com/emersion/go-imap-compress"
 	sortthread "github.com/emersion/go-imap-sortthread"
+	specialuse "github.com/emersion/go-imap-specialuse"
 	imapbackend "github.com/emersion/go-imap/backend"
 	imapserver "github.com/emersion/go-imap/server"
 	"github.com/emersion/go-message"
@@ -37,6 +38,7 @@ import (
 	"github.com/emersion/go-sasl"
 	i18nlevel "github.com/foxcpp/go-imap-i18nlevel"
 	namespace "github.com/foxcpp/go-imap-namespace"
+
 	"github.com/foxcpp/maddy/framework/config"
 	modconfig "github.com/foxcpp/maddy/framework/config/module"
 	tls2 "github.com/foxcpp/maddy/framework/config/tls"
@@ -66,6 +68,22 @@ type Endpoint struct {
 	storageMap       module.Table
 
 	Log log.Logger
+}
+
+func staticCapabilities(caps ...string) staticCapabilityExtension {
+	return staticCapabilityExtension{caps}
+}
+
+type staticCapabilityExtension struct{
+	caps []string
+}
+
+func (e staticCapabilityExtension) Capabilities(imapserver.Conn) []string {
+	return e.caps
+}
+
+func (staticCapabilityExtension) Command(string) imapserver.HandlerFactory {
+	return nil
 }
 
 func New(modName string, addrs []string) (module.LifetimeModule, error) {
@@ -309,8 +327,10 @@ func (endp *Endpoint) enableExtensions() error {
 		switch ext {
 		case "I18NLEVEL=1", "I18NLEVEL=2":
 			endp.serv.Enable(i18nlevel.NewExtension())
-		case "SORT":
+		case sortthread.SortCapability:
 			endp.serv.Enable(sortthread.NewSortExtension())
+		case specialuse.Capability:
+			endp.serv.Enable(staticCapabilities(specialuse.Capability))
 		}
 		if strings.HasPrefix(ext, "THREAD") {
 			endp.serv.Enable(sortthread.NewThreadExtension())
