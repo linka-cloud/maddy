@@ -21,7 +21,6 @@ package main
 import (
 	_ "github.com/foxcpp/maddy"
 	maddycli "github.com/foxcpp/maddy/internal/cli"
-	_ "github.com/foxcpp/maddy/internal/cli/ctl"
 )
 
 func main() {
